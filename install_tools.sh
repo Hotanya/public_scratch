@@ -18,7 +18,7 @@ sudo apt-get install git -y && echo -e "${GREEN}Git installed successfully.${NC}
 
 
 # Install net-tools
-echo -e "${YELLOW}Installing git...${NC}"
+echo -e "${YELLOW}Installing net-tools...${NC}"
 sudo apt-get install net-tools -y && echo -e "${GREEN}net-tools installed successfully.${NC}" || echo -e "${RED}Failed to install net-tools.${NC}"
 
 
