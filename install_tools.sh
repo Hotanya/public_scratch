@@ -6,77 +6,106 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
+CHECK_MARK="${GREEN}✅${NC}"
+CROSS_MARK="${RED}❌${NC}"
 
-# Update the package list
+# Tool list with their identifying command
+declare -A TOOLS
+TOOLS=(
+  ["git"]="git"
+  ["net-tools"]="netstat"
+  ["python3"]="python3"
+  ["python3-pip"]="pip3"
+  ["cowsay"]="cowsay"
+  ["tmux"]="tmux"
+  ["neofetch"]="neofetch"
+  ["jq"]="jq"
+  ["ohmytmux"]="ohmytmux"
+  ["qemu-guest-agent"]="qemu-ga"
+)
+
+# Track status and errors
+declare -A TOOL_STATUS
+declare -A TOOL_ERRORS
+
+#add /usr/games to path
+export PATH=$PATH:/usr/games
+
+# Function to check if a tool is installed
+is_installed() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+# Initialize tool statuses
+for tool in "${!TOOLS[@]}"; do
+  if [ "$tool" == "ohmytmux" ]; then
+    [[ -d "$HOME/.tmux" ]] && TOOL_STATUS[$tool]="installed" || TOOL_STATUS[$tool]="missing"
+  else
+    is_installed "${TOOLS[$tool]}" && TOOL_STATUS[$tool]="installed" || TOOL_STATUS[$tool]="missing"
+  fi
+done
+
+# Function to render tool list with errors
+print_tool_list() {
+  clear
+  echo -e "${BLUE}Tool Installation Status:${NC}"
+  for tool in "${!TOOLS[@]}"; do
+    if [[ "${TOOL_STATUS[$tool]}" == "installed" ]]; then
+      echo -e "  ${CHECK_MARK} $tool"
+    else
+      echo -e "  ${CROSS_MARK} $tool"
+    fi
+  done
+
+  # Display error messages if any
+  echo ""
+  for tool in "${!TOOL_ERRORS[@]}"; do
+    echo -e "${RED}⚠️  Error installing ${tool}:${NC} ${TOOL_ERRORS[$tool]}"
+  done
+  echo ""
+}
+
+# Display initial list
+print_tool_list
+
+# Update package list
 echo -e "${BLUE}Updating package list...${NC}"
-sudo apt-get update -y
+sudo apt-get update -qq
 
+# Try to install missing tools
+for tool in "${!TOOLS[@]}"; do
+  if [[ "${TOOL_STATUS[$tool]}" == "missing" ]]; then
+    echo -e "${YELLOW}Installing $tool...${NC}"
+    if [[ "$tool" == "ohmytmux" ]]; then
+      if git clone -q https://github.com/gpakosz/.tmux.git "$HOME/.tmux"; then
+        ln -sf "$HOME/.tmux/.tmux.conf" "$HOME/.tmux.conf"
+        [ ! -f "$HOME/.tmux.conf.local" ] && cp "$HOME/.tmux/.tmux.conf.local" "$HOME/.tmux.conf.local"
+        TOOL_STATUS[$tool]="installed"
+      else
+        TOOL_ERRORS[$tool]="Failed to clone ohmytmux repository."
+      fi
+    else
+      # Capture stderr while installing
+      ERROR_MSG=$(sudo apt-get install -y -qq "$tool" 2>&1)
+      if is_installed "${TOOLS[$tool]}"; then
+        TOOL_STATUS[$tool]="installed"
+      else
+        TOOL_ERRORS[$tool]="$ERROR_MSG"
+      fi
+    fi
+    print_tool_list
+  fi
+done
 
-# Install git
-echo -e "${YELLOW}Installing git...${NC}"
-sudo apt-get install git -y && echo -e "${GREEN}Git installed successfully.${NC}" || echo -e "${RED}Failed to install Git.${NC}"
-
-
-# Install net-tools
-echo -e "${YELLOW}Installing net-tools...${NC}"
-sudo apt-get install net-tools -y && echo -e "${GREEN}net-tools installed successfully.${NC}" || echo -e "${RED}Failed to install net-tools.${NC}"
-
-
-# Install Python 3
-echo -e "${YELLOW}Installing Python 3...${NC}"
-sudo apt-get install python3 -y && echo -e "${GREEN}Python 3 installed successfully.${NC}" || echo -e "${RED}Failed to install Python 3.${NC}"
-
-
-# Install Python 3 pip
-echo -e "${YELLOW}Installing Python 3 pip...${NC}"
-sudo apt-get install python3-pip -y && echo -e "${GREEN}Python 3 pip installed successfully.${NC}" || echo -e "${RED}Failed to install Python 3 pip.${NC}"
-
-
-# Install cowsay
-echo -e "${YELLOW}Installing cowsay...${NC}"
-sudo apt-get install cowsay -y && echo -e "${GREEN}Cowsay installed successfully.${NC}" || echo -e "${RED}Failed to install Cowsay.${NC}"
-
-
-# Install tmux
-echo -e "${YELLOW}Installing tmux...${NC}"
-sudo apt-get install tmux -y && echo -e "${GREEN}Tmux installed successfully.${NC}" || echo -e "${RED}Failed to install Tmux.${NC}"
-
-
-# Install neofetch
-echo -e "${YELLOW}Installing neofetch...${NC}"
-sudo apt-get install neofetch -y && echo -e "${GREEN}Neofetch installed successfully.${NC}" || echo -e "${RED}Failed to install Neofetch.${NC}"
-
-
-# Install jq
-echo -e "${YELLOW}Installing jq...${NC}"
-sudo apt-get install jq -y && echo -e "${GREEN}Jq installed successfully.${NC}" || echo -e "${RED}Failed to install Jq.${NC}"
-
-
-# Install ohmytmux settings
-echo -e "${YELLOW}Installing ohmytmux settings...${NC}"
-if [ ! -d "$HOME/.tmux" ]; then
-   git clone https://github.com/gpakosz/.tmux.git "$HOME/.tmux" && echo -e "${GREEN}Oh My Tmux repository cloned successfully.${NC}" || echo -e "${RED}Failed to clone Oh My Tmux repository.${NC}"
+# Enable qemu-guest-agent if installed
+if [[ "${TOOL_STATUS["qemu-guest-agent"]}" == "installed" ]]; then
+  sudo systemctl enable -q qemu-guest-agent || \
+  TOOL_ERRORS["qemu-guest-agent"]="Installed, but failed to enable qemu-guest-agent in systemctl."
 fi
 
-
-# Create a symbolic link for the tmux configuration file
-ln -sf "$HOME/.tmux/.tmux.conf" "$HOME/.tmux.conf" && echo -e "${GREEN}Symbolic link for .tmux.conf created successfully.${NC}" || echo -e "${RED}Failed to create symbolic link for .tmux.conf.${NC}"
-
-
-# Append or create the .tmux.conf.local file for personal customizations
-if [ ! -f "$HOME/.tmux.conf.local" ]; then
-  cp "$HOME/.tmux/.tmux.conf.local" "$HOME/.tmux.conf.local" && echo -e "${GREEN}.tmux.conf.local file created successfully.${NC}" || echo -e "${RED}Failed to create .tmux.conf.local file.${NC}"
+# Final message
+if [[ ${#TOOL_ERRORS[@]} -eq 0 ]]; then
+  echo -e "${GREEN}All tools installed successfully!${NC}"
+else
+  echo -e "${RED}Some tools failed to install. See above for details.${NC}"
 fi
-
-
-# Install qemu guest agent
-echo -e "${YELLOW}Installing qemu guest agent...${NC}"
-sudo apt-get install qemu-guest-agent -y && echo -e "${GREEN}qemu guest agent installed successfully.${NC}" || echo -e "${RED}Failed to install qemu guest agent.${NC}"
-
-
-# Enabling in systemctl
-echo -e "${YELLOW}Enabling in systemctl...${NC}"
-sudo systemctl enable qemu-guest-agent
-
-
-echo -e "${GREEN}All specified tools and ohmytmux settings have been installed successfully.${NC}"
